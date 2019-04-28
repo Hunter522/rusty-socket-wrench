@@ -1,0 +1,10 @@
+[package]
+name = "rusty-socket-wrench"
+version = "0.1.0"
+authors = ["Hunter N. Morgan <hunterm522@gmail.com>"]
+
+[dependencies]
+log = "0.4.6"
+env_logger = "0.6.0"
+clap = "2.32.0"
+libc = "0.2.47"
