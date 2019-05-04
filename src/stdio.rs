@@ -2,7 +2,7 @@
 //!
 //! This only extends the Read and Write traits
 
-use std::io::{self, Stdin, Stdout, StdinLock, StdoutLock, Read, Write};
+use std::io::{self, Stdin, Stdout, Read, Write};
 use std::fmt::Arguments;
 
 /// Combination of std::Stdin and std::Stdout
@@ -12,15 +12,10 @@ pub struct Stdio {
 }
 
 impl Stdio {
-
     /// Create a new instance of Stdio
     pub fn new() -> Stdio {
         Stdio {stdin: io::stdin(), stdout: io::stdout()}
     }
-
-    // lock
-
-    // read_line
 }
 
 impl Read for Stdio {

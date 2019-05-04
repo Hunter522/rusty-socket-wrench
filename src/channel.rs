@@ -8,8 +8,8 @@
 //! * Serial port
 //! * stdin/stdout
 
-use std::net::{UdpSocket, TcpListener, TcpStream};
-use std::io::{self, Write, Read, Stdin, Stdout, Error, ErrorKind};
+use std::net::{UdpSocket, TcpStream};
+use std::io::{self, Write, Read};
 use std::os::unix::io::{RawFd, AsRawFd};
 use stdio::Stdio;
 use tcp_server_wrapper::TcpServerWrapper;

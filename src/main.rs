@@ -8,37 +8,16 @@ mod stdio;
 mod tcp_server_wrapper;
 mod channel;
 
-use std::net::{UdpSocket, TcpListener, TcpStream};
-use std::io::{self, Write, Read, Stdin, Stdout, Error, ErrorKind};
-use std::fmt::Arguments;
+use std::net::{UdpSocket, TcpStream};
+use std::io::{self};
 use clap::{Arg, App};
 use stdio::Stdio;
 use tcp_server_wrapper::TcpServerWrapper;
 use channel::{Channel, ChannelKind};
-use std::os::unix::io::AsRawFd;
 
 
 const READ_BUF_SIZE: usize = 2048;
 // const WRITE_BUF_SIZE: usize = 2048;
-
-
-// trait Channel: Read + Write { }
-// impl<T: Read + Write> Channel for T { }
-// impl Channel for T where T: Read + Write { }
-
-
-// cant implement traits that aren't ours on types that aren't ours...we have to own one of them in our crate
-
-// impl Channel for UdpSocket {
-//     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-//         1
-//     }
-// }
-
-// struct UdpSocketWrapper(UdpSocket);
-// struct TcpListenerWrapper(TcpListener);
-// struct TcpStreamWrapper(TcpStream);
-
 
 
 /// Rust wrapper around libc::poll
@@ -47,9 +26,6 @@ fn rpoll(fds: &mut [libc::pollfd], timeout: libc::c_int) -> libc::c_int {
         libc::poll(&mut fds[0] as *mut libc::pollfd, fds.len() as libc::nfds_t, timeout)
     }
 }
-
-
-
 
 /// Parses cmd line string for channel
 /// 
@@ -68,7 +44,6 @@ fn parse_channel_str(channel_str: &str) -> io::Result<Channel> {
     }
 
     // everything else follows pattern "channel_type:channel_params"
-
     let idx = channel_str.find(':').expect("Invalid channel format: Missing ':'");
     let (channel_type, channel_params1) = channel_str.split_at(idx);
     let channel_params = &channel_params1[1..];
@@ -107,7 +82,7 @@ fn parse_channel_str(channel_str: &str) -> io::Result<Channel> {
         }
         _ => {
             // invalid channel type
-            Err(io::Error::new(ErrorKind::InvalidInput, "Invalid channel type"))
+            Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid channel type"))
         }
     }
 }
@@ -160,16 +135,6 @@ fn main() {
 
     // main loop
     loop {
-        // everything should be non-blocking
-        // add sleep at end for couple ms, if data coming across, then remove sleep...optimization to reduce taxing cpu
-
-        //stdio has no way to do nonblocking reads so have to offload that to another thread
-        // look into using Rust "channels" which is inter-thread comms
-
-        // either could use libc::poll to block until one of the channels has data to read
-        // or just do non-blocking read and if no bytes read or WOULDBLOCK occurs then just sleep for a tiny bit
-        // ehh...poll is better
-
         // special case for TcpServer: call accept()
         if let ChannelKind::TcpServer(server) = &mut input_channel.channel_kind {
             match server.accept() {
