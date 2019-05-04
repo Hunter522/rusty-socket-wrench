@@ -5,20 +5,21 @@ extern crate clap;
 extern crate libc;
 
 mod stdio;
+mod tcp_server_wrapper;
 mod channel;
-// mod channel;
 
 use std::net::{UdpSocket, TcpListener, TcpStream};
 use std::io::{self, Write, Read, Stdin, Stdout, Error, ErrorKind};
 use std::fmt::Arguments;
 use clap::{Arg, App};
 use stdio::Stdio;
+use tcp_server_wrapper::TcpServerWrapper;
 use channel::{Channel, ChannelKind};
 use std::os::unix::io::AsRawFd;
 
 
 const READ_BUF_SIZE: usize = 2048;
-const WRITE_BUF_SIZE: usize = 2048;
+// const WRITE_BUF_SIZE: usize = 2048;
 
 
 // trait Channel: Read + Write { }
@@ -80,7 +81,7 @@ fn parse_channel_str(channel_str: &str) -> io::Result<Channel> {
             let addr = format!("0.0.0.0:{}", port);
             let mut socket = UdpSocket::bind(addr).expect("Couldn't bind to address");
             socket.set_nonblocking(true).expect("Failed to set nonblocking mode on socket");
-            return Ok(Channel::new(ChannelKind::Udp(socket)))
+            Ok(Channel::new(ChannelKind::Udp(socket)))
         },
         "udpout" => {
             debug!("udpout");
@@ -91,24 +92,27 @@ fn parse_channel_str(channel_str: &str) -> io::Result<Channel> {
             let mut socket = UdpSocket::bind("0.0.0.0:0").expect("Couldn't bind socket");
             socket.connect(channel_params).expect("Could not connect to address");
             socket.set_nonblocking(true).expect("Failed to set nonblocking mode on socket");
-            return Ok(Channel::new(ChannelKind::Udp(socket)))
+            Ok(Channel::new(ChannelKind::Udp(socket)))
         },
         "tcpin" => {
             debug!("tcpin");
-            // return Err(io::Error::new(ErrorKind::InvalidInput, "Not implemented"));
-            unimplemented!();
+            let mut socket = TcpServerWrapper::bind(channel_params).expect("Could not bind to address");
+            Ok(Channel::new(ChannelKind::TcpServer(socket)))
         }
         "tcpout" => {
             debug!("tcpout");
-            unimplemented!();
+            let mut socket = TcpStream::connect(channel_params).expect("Could not connect to address");
+            socket.set_nonblocking(true).expect("Failed to set nonblocking mode on socket");
+            Ok(Channel::new(ChannelKind::TcpClient(socket)))
         }
         _ => {
             // invalid channel type
-            return Err(io::Error::new(ErrorKind::InvalidInput, "Invalid channel type"));
+            Err(io::Error::new(ErrorKind::InvalidInput, "Invalid channel type"))
         }
-    };
+    }
 }
 
+#[allow(clippy::cyclomatic_complexity)]
 fn main() {
     env_logger::init();
 
@@ -151,7 +155,7 @@ fn main() {
 
     let mut read_buf_input_channel : [u8; READ_BUF_SIZE] = [0; READ_BUF_SIZE];
     let mut read_buf_output_channel : [u8; READ_BUF_SIZE] = [0; READ_BUF_SIZE];
-    let mut write_buf : [u8; WRITE_BUF_SIZE] = [0; WRITE_BUF_SIZE];
+    // let mut write_buf : [u8; WRITE_BUF_SIZE] = [0; WRITE_BUF_SIZE];
 
 
     // main loop
@@ -166,43 +170,70 @@ fn main() {
         // or just do non-blocking read and if no bytes read or WOULDBLOCK occurs then just sleep for a tiny bit
         // ehh...poll is better
 
-        //TODO: in case of TcpServer, either listen here or create a new thread that just does the listening for TcpClients
-        //      can pass the fd to channel::read call...special case for tcpserver where it will use that argument
-
-        //TODO: to work with TcpServer, since it has multiple TcpClients, would have to special case on that
-        // and dynamically add all the TcpClient::as_raw_fd() 
-        let mut pollfd_structs = [
-            libc::pollfd {
-                fd: input_channel.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0
-            },
-            libc::pollfd {
-                fd: output_channel.as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0
-            }];
+        // special case for TcpServer: call accept()
+        if let ChannelKind::TcpServer(server) = &mut input_channel.channel_kind {
+            match server.accept() {
+                Ok((_, addr)) => debug!("New TCP client connected to input channel {}", addr),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}, // do nothing, is ok since we are nonblocking
+                Err(e) => panic!("Failed to call accept on input channel {:?}", e)
+            }
+        }
+        if let ChannelKind::TcpServer(server) = &mut output_channel.channel_kind {
+            match server.accept() {
+                Ok((_, addr)) => debug!("New TCP client connected to output channel {}", addr),
+                Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {}, // do nothing, is ok since we are nonblocking
+                Err(e) => panic!("Failed to call accept on output channel {:?}", e)
+            }
+        }
+        
+        // set up pollfd structs for calling libc::poll
+        let mut pollfd_structs_vec: Vec<libc::pollfd> = Vec::new();
+        for raw_fd in input_channel.raw_fds() {
+            pollfd_structs_vec.push(libc::pollfd {
+                            fd: raw_fd,
+                            events: libc::POLLIN,
+                            revents: 0
+                        });
+        }
+        let num_fd_in = pollfd_structs_vec.len();
+        for raw_fd in output_channel.raw_fds() {
+            pollfd_structs_vec.push(libc::pollfd {
+                            fd: raw_fd,
+                            events: libc::POLLIN,
+                            revents: 0
+                        });
+        }
         
         debug!("Polling to see if data is available to be read on either channel...");
-        let data_available = match rpoll(&mut pollfd_structs, 500) {
+        let data_available = match rpoll(pollfd_structs_vec.as_mut_slice(), 500) {
             -1 => panic!("Error occurred when poll() was called"), //TODO: use errno crate
             0 => false, // timed out,
             _ => true // positive number returned on success
         };
 
         if data_available {
-            let input_channel_has_data = pollfd_structs[0].revents == libc::POLLIN;
-            let output_channel_has_data = pollfd_structs[1].revents == libc::POLLIN;
+            let (pollfd_structs_in, pollfd_structs_out) = pollfd_structs_vec.split_at(num_fd_in);
+            let input_channel_has_data = pollfd_structs_in.iter().any(|&x| x.revents == libc::POLLIN);
+            let output_channel_has_data = pollfd_structs_out.iter().any(|&x| x.revents == libc::POLLIN);
+                        
             let mut bytes_read_in = 0;
             let mut bytes_read_out = 0;
 
             // read
             if input_channel_has_data {
-                bytes_read_in = input_channel.read(&mut read_buf_input_channel).unwrap();
+                bytes_read_in = match input_channel.read(&mut read_buf_input_channel) {
+                    Ok(bytes_read) => bytes_read,
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => 0,
+                    Err(e) => panic!("Failed to read data from input channel {:?}", e)
+                };
                 debug!("input_channel: Read {} bytes", bytes_read_in);
             }
             if output_channel_has_data {
-                bytes_read_out = output_channel.read(&mut read_buf_output_channel).unwrap();
+                bytes_read_out = match output_channel.read(&mut read_buf_output_channel) {
+                    Ok(bytes_read) => bytes_read,
+                    Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => 0,
+                    Err(e) => panic!("Failed to read data from output channel {:?}", e)
+                };
                 debug!("output_channel: Read {} bytes", bytes_read_out);
             }
         

@@ -10,12 +10,13 @@
 
 use std::net::{UdpSocket, TcpListener, TcpStream};
 use std::io::{self, Write, Read, Stdin, Stdout, Error, ErrorKind};
+use std::os::unix::io::{RawFd, AsRawFd};
 use stdio::Stdio;
-use std::os::unix::io::AsRawFd;
+use tcp_server_wrapper::TcpServerWrapper;
 
 pub enum ChannelKind {
     Udp(UdpSocket),
-    TcpServer(TcpListener),
+    TcpServer(TcpServerWrapper),
     TcpClient(TcpStream),
     Stdio(Stdio)
 }
@@ -32,26 +33,33 @@ impl Channel {
     pub fn write(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.channel_kind {
             ChannelKind::Udp(ref mut channel_kind) => {
-                return channel_kind.send(buf);
+                channel_kind.send(buf)
             },
             ChannelKind::TcpServer(ref mut channel_kind) => {
                 // cant just send...we have to listen first for a client to connect before we can send to it (TcpStream)
                 // can either maintain a special-case vector of TcpStream representing any connected client
                 // the main loop will have to special-case it to listen for any tcp clients
                 // have to remove any tcp clients too that disconnect or close the stream
-                unimplemented!()
+
+                // sends to all connected clients
+                for client in &mut channel_kind.clients {
+                    client.write_all(buf)?;
+                }
+                Ok(buf.len())
             },
             ChannelKind::TcpClient(ref mut channel_kind) => {
-                return channel_kind.write(buf);
+                channel_kind.write_all(buf)?;
+                Ok(buf.len())
             },
             ChannelKind::Stdio(ref mut channel_kind) => {
-                return channel_kind.write(buf);
+                channel_kind.write_all(buf)?;
+                Ok(buf.len())
             }
         }
     }
 
     pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let result: io::Result<usize> = match self.channel_kind {
+        match self.channel_kind {
             ChannelKind::Udp(ref mut channel_kind) => {
                 channel_kind.recv(buf)
             },
@@ -59,36 +67,46 @@ impl Channel {
                 channel_kind.read(buf)
             },
             ChannelKind::TcpServer(ref mut channel_kind) => {
-                unimplemented!()
+                // hard to multiplex here, since by default it would interleave sometimes depending on
+                // when I do the read and if I read all data from any particular client
+                // so for now this will concatentant all data read from each client into one buffer then pass it on
+                let mut total_bytes_read: usize = 0;
+                for client in &mut channel_kind.clients {
+                    total_bytes_read += match client.read(buf) {
+                        Ok(bytes_read) => bytes_read,
+                        Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => 0,
+                        Err(e) => return Err(e) // bubble up
+                    };
+                }
+                Ok(total_bytes_read)
             },
             ChannelKind::Stdio(ref mut channel_kind) => {
                 channel_kind.read(buf)
             }
-        };
-
-        match result {
-            Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-                return Ok(0) // no data available, IS OK
-            },
-            _ => return result,
         }
-    }
-}
 
-impl AsRawFd for Channel {
-    fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
+        // match result {
+        //     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
+        //         //TODO: move up to main
+        //         Ok(0) // no data available, IS OK
+        //     },
+        //     _ =>  result
+        // }
+    }
+
+    pub fn raw_fds(&self) -> Vec<RawFd> {
         match self.channel_kind {
             ChannelKind::Udp(ref channel_kind) => {
-                return channel_kind.as_raw_fd();
+                vec![channel_kind.as_raw_fd()]
             },
             ChannelKind::TcpServer(ref channel_kind) => {
-                return channel_kind.as_raw_fd();
+                channel_kind.clients.iter().map(AsRawFd::as_raw_fd).collect()
             },
             ChannelKind::TcpClient(ref channel_kind) => {
-                return channel_kind.as_raw_fd();
+                vec![channel_kind.as_raw_fd()]
             },
             ChannelKind::Stdio(ref channel_kind) => {
-                return channel_kind.stdin.as_raw_fd();
+                vec![channel_kind.stdin.as_raw_fd()]
             }
         }
     }

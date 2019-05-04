@@ -24,7 +24,8 @@ Some important behavior:
 - [ ] tcpout
 - [ ] udpin should cache addr:port of sender so we know who to send to
 - [ ] serial port
-
+- [ ] handle errors in sending
+- [ ] handle ctrl+c and close sockets nicely
 
 # Build
 
