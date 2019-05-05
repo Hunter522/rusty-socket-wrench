@@ -5,6 +5,6 @@ authors = ["Hunter N. Morgan <hunterm522@gmail.com>"]
 
 [dependencies]
 log = "0.4.6"
-env_logger = "0.6.0"
-clap = "2.32.0"
-libc = "0.2.47"
+env_logger = "0.6.1"
+clap = "2.33.0"
+libc = "0.2.54"
