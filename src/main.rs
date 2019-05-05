@@ -51,7 +51,6 @@ fn parse_channel_str(channel_str: &str) -> io::Result<Channel> {
     match channel_type {
         "udpin" => {
             debug!("udpin");
-            debug!("{}", channel_params);
             let port: u16 = channel_params.parse().expect("Invalid channel params. Must be PORT");
             let addr = format!("0.0.0.0:{}", port);
             let mut socket = UdpSocket::bind(addr).expect("Couldn't bind to address");
@@ -60,9 +59,6 @@ fn parse_channel_str(channel_str: &str) -> io::Result<Channel> {
         },
         "udpout" => {
             debug!("udpout");
-            // let ip_port_vec: Vec<&str> = channel_params.split(':')
-            // let port_idx = channel_params.find(':').expect("Invalid channel params format: Missing ':'");
-            // let (ip, port) = channel_params.split_at(port_idx);
             // 0.0.0.0:0 is used to allow the UDP socket to be bound to any available port
             let mut socket = UdpSocket::bind("0.0.0.0:0").expect("Couldn't bind socket");
             socket.connect(channel_params).expect("Could not connect to address");
@@ -155,18 +151,18 @@ fn main() {
         let mut pollfd_structs_vec: Vec<libc::pollfd> = Vec::new();
         for raw_fd in input_channel.raw_fds() {
             pollfd_structs_vec.push(libc::pollfd {
-                            fd: raw_fd,
-                            events: libc::POLLIN,
-                            revents: 0
-                        });
+                                        fd: raw_fd,
+                                        events: libc::POLLIN,
+                                        revents: 0
+                                    });
         }
         let num_fd_in = pollfd_structs_vec.len();
         for raw_fd in output_channel.raw_fds() {
             pollfd_structs_vec.push(libc::pollfd {
-                            fd: raw_fd,
-                            events: libc::POLLIN,
-                            revents: 0
-                        });
+                                        fd: raw_fd,
+                                        events: libc::POLLIN,
+                                        revents: 0
+                                    });
         }
         
         debug!("Polling to see if data is available to be read on either channel...");

@@ -61,7 +61,9 @@ impl Channel {
     pub fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self.channel_kind {
             ChannelKind::Udp(ref mut channel_kind) => {
-                channel_kind.recv(buf)
+                let (bytes_read, addr) = channel_kind.recv_from(buf)?;
+                channel_kind.connect(addr)?; // "connect" to the sender, so that send call works
+                Ok(bytes_read)
             },
             ChannelKind::TcpClient(ref mut channel_kind) => {
                 channel_kind.read(buf)
@@ -84,14 +86,6 @@ impl Channel {
                 channel_kind.read(buf)
             }
         }
-
-        // match result {
-        //     Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
-        //         //TODO: move up to main
-        //         Ok(0) // no data available, IS OK
-        //     },
-        //     _ =>  result
-        // }
     }
 
     pub fn raw_fds(&self) -> Vec<RawFd> {

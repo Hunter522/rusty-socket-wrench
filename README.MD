@@ -6,6 +6,8 @@ Data channels can be TCP server, TCP client, UDP server, UDP client, serial port
 
 This was inspired by typical Linux tools such as `netcat` and `socat` but to provide a easier to use command-line interface.
 
+This was also an exercise for me to learn more about the Rust language.
+
 The philosophy behind this tool is to provide sane defaults to sockets and not having any "surprises" in its behavior.
 
 
@@ -19,13 +21,17 @@ Some important behavior:
 
 # TODO
 
-- [ ] tcp server channel needs to be wrapper class to manage clients
-- [ ] tcpin
-- [ ] tcpout
+- [x] tcp server channel needs to be wrapper class to manage clients
+- [x] tcpin
+- [x] tcpout
 - [ ] udpin should cache addr:port of sender so we know who to send to
+- [ ] write udp wrapper to maintain 'connected' state to catch case where send without connect when doing udpin
 - [ ] serial port
 - [ ] handle errors in sending
 - [ ] handle ctrl+c and close sockets nicely
+- [ ] tcpout reconnect
+- [ ] serial reconnect
+- [ ] recv buf size cmd line arg
 
 # Build
 
